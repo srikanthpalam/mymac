@@ -1,0 +1,108 @@
+node{
+    notifyStarted()
+    stage("SCM Checkout"){
+	git credentialsId: 'gitcreds', url: 'https://github.com/Devendranathashok/my-app.git'
+	}
+	try {
+
+   stage('Maven Build'){
+        def mvnHome = tool name: 'maven3', type: 'maven'
+		sh "${mvnHome}/bin/mvn clean package"
+		sh 'mv target/myweb*.war target/myweb.war'
+   }
+
+    notifySuccessful()
+  } catch (e) {
+    currentBuild.result = "FAILED"
+    notifyFailed()
+    throw e
+  }  
+  stage('SonarQube Analysis') {
+        def mvnHome =  tool name: 'maven3', type: 'maven'
+        withSonarQubeEnv('sonar-6.5') { 
+          sh "${mvnHome}/bin/mvn sonar:sonar"
+        }
+    }
+    stage('Docker build')
+	{
+	sh 'docker build -t 192.168.58.135:8083/myweb:1.0.0 .'
+	}
+	stage('Docker push')
+	{
+	  sh "docker login http://192.168.58.135:8083 -u admin -p admin123"
+          sh "docker push 192.168.58.135:8083/myweb:1.0.0"
+	  }
+	  try{
+	 deploymentStarted()
+	stage('Deploy to Kubernetes'){
+		sshagent(['kubernetescreds']) {
+		sh "scp -o StrictHostKeyChecking=no deployment.yaml vagrant@192.168.58.120:/home/vagrant/"
+		try{
+	     sh "ssh vagrant@192.168.58.120 kubectl create -f /home/vagrant/deployment.yaml"
+	   }catch(ex){
+	     sh "ssh vagrant@192.168.58.120 kubectl apply -f /home/vagrant/deployment.yaml"
+	   }
+	   deploymentSuccessful()
+	   }
+	   }
+	   }catch (e) {
+	   currentBuild.result = "FAILED"
+	   deploymentFailed()
+	   throw e
+	   }
+ 
+	}
+def notifyStarted() { emailext (
+	body: """
+	STARTED: Job \'${env.JOB_NAME} [${env.BUILD_NUMBER}]\':
+	Check console output at "${env.JOB_NAME} [${env.BUILD_NUMBER}]"
+	""", recipientProviders: [developers()], subject: 'subject: "STARTED: Job \'${env.JOB_NAME} [${env.BUILD_NUMBER}]\'",', 
+	to: 'reachashok9538053428@gmail.com' )}
+
+def notifySuccessful() { 
+ 	emailext(
+ 	body: """
+	SUCCESSFUL: Job \'${env.JOB_NAME} [${env.BUILD_NUMBER}]\':  
+	Check console output at "${env.JOB_NAME} [${env.BUILD_NUMBER}]"
+	""", recipientProviders: [developers()], subject: '"SUCCESSFUL: Job \'${env.JOB_NAME} [${env.BUILD_NUMBER}]\'"',
+	to: 'reachashok9538053428@gmail.com')
+} 
+
+def notifyFailed() {
+	emailext (
+	body:  """
+	  FAILED: Job \'${env.JOB_NAME} [${env.BUILD_NUMBER}]\':
+	Check console output at "${env.JOB_NAME} [${env.BUILD_NUMBER}]"
+	""",, recipientProviders: [developers()], subject: '"FAILED: Job \'${env.JOB_NAME} [${env.BUILD_NUMBER}]\'",', 
+	to: 'reachashok9538053428@gmail.com')
+}
+def deploymentStarted() { emailext (
+	body: """
+	STARTED: Job \'${env.JOB_NAME} [${env.BUILD_NUMBER}]\':
+	Check console output at "${env.JOB_NAME} [${env.BUILD_NUMBER}]"
+	Deployment has been started on kubernetes
+	""", recipientProviders: [developers()], subject: 'subject: "STARTED: Job \'${env.JOB_NAME} [${env.BUILD_NUMBER}]\'",', 
+	to: 'reachashok9538053428@gmail.com' )}
+
+def deploymentSuccessful() { 
+	 emailext(
+ 	body: """
+	SUCCESSFUL: Job \'${env.JOB_NAME} [${env.BUILD_NUMBER}]\':       
+	Check console output at "${env.JOB_NAME} [${env.BUILD_NUMBER}]"
+	Deployment has been successfully completed
+	""", recipientProviders: [developers()], subject: '"SUCCESSFUL: Job \'${env.JOB_NAME} [${env.BUILD_NUMBER}]\'"',
+	to: 'reachashok9538053428@gmail.com')
+} 
+
+def deploymentFailed() {
+	emailext (
+	body:  """
+	FAILED: Job \'${env.JOB_NAME} [${env.BUILD_NUMBER}]\':
+	Check console output at "${env.JOB_NAME} [${env.BUILD_NUMBER}]"
+	Deployment has been failed
+	""",, recipientProviders: [developers()], subject: '"FAILED: Job \'${env.JOB_NAME} [${env.BUILD_NUMBER}]\'",', 
+	to: 'reachashok9538053428@gmail.com')
+}
+
+	
+
